@@ -1,0 +1,39 @@
+{
+  "name": "mcp-coatcheck",
+  "version": "0.1.0",
+  "description": "MCP Tasks for any MCP server. A zero dependency stdio proxy that turns slow tool calls into tasks, with a fallback for clients that don't support tasks yet.",
+  "type": "module",
+  "bin": {
+    "mcp-coatcheck": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test --test-timeout=20000 test/*.test.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/emrehangorgec/mcp-coatcheck.git"
+  },
+  "homepage": "https://github.com/emrehangorgec/mcp-coatcheck#readme",
+  "author": "emrehangorgec",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "tasks",
+    "proxy",
+    "claude-code",
+    "codex"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

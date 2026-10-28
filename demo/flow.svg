@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="200" viewBox="0 0 880 200" font-family="'Segoe UI', Inter, -apple-system, 'Helvetica Neue', Arial, sans-serif">
+  <title>Agent talks to mcp-coatcheck, which talks to your unchanged MCP server</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#121a2e"/>
+      <stop offset="1" stop-color="#0d1712"/>
+    </linearGradient>
+    <marker id="head" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#7c8696"/>
+    </marker>
+  </defs>
+  <rect width="880" height="200" rx="16" fill="url(#bg)"/>
+
+  <g>
+    <rect x="32" y="50" width="220" height="100" rx="12" fill="#11151d" stroke="#2a3142"/>
+    <text x="142" y="94" text-anchor="middle" fill="#d7dce5" font-size="20" font-weight="700">Agent</text>
+    <text x="142" y="120" text-anchor="middle" fill="#7c8696" font-size="13">Claude Code · Codex · Cursor · …</text>
+  </g>
+
+  <g>
+    <rect x="330" y="40" width="220" height="120" rx="12" fill="#161229" stroke="#6d5bd0" stroke-width="1.5"/>
+    <text x="440" y="92" text-anchor="middle" fill="#c4a7ff" font-size="20" font-weight="700" font-family="'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace">mcp-coatcheck</text>
+    <text x="440" y="118" text-anchor="middle" fill="#7c8696" font-size="13">slow calls get a ticket</text>
+    <text x="440" y="138" text-anchor="middle" fill="#7c8696" font-size="13">quick calls pass through</text>
+  </g>
+
+  <g>
+    <rect x="628" y="50" width="220" height="100" rx="12" fill="#11151d" stroke="#2a3142"/>
+    <text x="738" y="94" text-anchor="middle" fill="#d7dce5" font-size="20" font-weight="700">Your MCP server</text>
+    <text x="738" y="120" text-anchor="middle" fill="#4ade80" font-size="13">unchanged</text>
+  </g>
+
+  <line x1="258" y1="100" x2="324" y2="100" stroke="#7c8696" stroke-width="2" marker-start="url(#head)" marker-end="url(#head)"/>
+  <line x1="556" y1="100" x2="622" y2="100" stroke="#7c8696" stroke-width="2" marker-start="url(#head)" marker-end="url(#head)"/>
+</svg>

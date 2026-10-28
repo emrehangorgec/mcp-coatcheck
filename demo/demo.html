@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mcp-coatcheck demo</title>
+<!--
+  Replays two real Claude Code runs (claude -p, MCP_TOOL_TIMEOUT=15000) against
+  examples/slow-server.mjs: one wrapped in mcp-coatcheck --after 10s, one not.
+  Tool calls, results and messages are copied from the stream-json output.
+  The page is driven by render(t), so a recorder can step through frames.
+-->
+<style>
+  :root {
+    --bg: #0a0d13;
+    --panel: #11151d;
+    --panel-edge: #1f2532;
+    --text: #d7dce5;
+    --muted: #7c8696;
+    --dim: #4b5363;
+    --green: #4ade80;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --blue: #7aa2f7;
+    --violet: #c4a7ff;
+    --mono: "Cascadia Code", "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Segoe UI", Inter, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 720px; overflow: hidden; background: var(--bg); }
+  body {
+    font-family: var(--sans);
+    color: var(--text);
+    background:
+      radial-gradient(900px 420px at 15% -10%, #1b2440 0%, transparent 60%),
+      radial-gradient(800px 380px at 100% 110%, #13261f 0%, transparent 60%),
+      var(--bg);
+  }
+  header { position: absolute; left: 48px; right: 48px; top: 30px; display: flex; align-items: center; gap: 16px; }
+  .logo { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #2a3350, #1a2030);
+          border: 1px solid #2c3550; display: grid; place-items: center; }
+  .title { font-size: 26px; font-weight: 700; letter-spacing: -0.3px; }
+  .title span { color: var(--muted); font-weight: 400; margin-left: 10px; font-size: 18px; }
+  .scenario { margin-left: auto; display: flex; gap: 10px; }
+  .chip { font-family: var(--mono); font-size: 13px; color: var(--muted); border: 1px solid var(--panel-edge);
+          background: #0f131a; padding: 6px 10px; border-radius: 999px; }
+  .chip b { color: var(--text); font-weight: 600; }
+  .panes { position: absolute; left: 48px; right: 48px; top: 104px; bottom: 40px; display: grid;
+           grid-template-columns: 1fr 1fr; gap: 24px; }
+  .pane { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 14px; overflow: hidden;
+          display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.45); position: relative; }
+  .chrome { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px;
+            border-bottom: 1px solid var(--panel-edge); background: #0e1219; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #2a303c; }
+  .tag { margin-left: 10px; font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+  .tag.off { color: #fca5a5; background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.3); }
+  .tag.on { color: #86efac; background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.3); }
+  .clock { margin-left: auto; font-family: var(--mono); font-size: 14px; color: var(--muted); }
+  .body { padding: 18px 20px; font-family: var(--mono); font-size: 14.5px; line-height: 1.55; flex: 1; }
+  .line { margin-bottom: 10px; white-space: pre-wrap; }
+  .prompt { color: var(--violet); }
+  .prompt::before { content: "> "; color: var(--dim); }
+  .call { color: var(--blue); }
+  .call::before { content: "● "; }
+  .say { color: var(--text); font-family: var(--sans); font-size: 15px; }
+  .say::before { content: "✻ "; color: var(--muted); font-family: var(--mono); }
+  .res { padding-left: 18px; color: var(--muted); }
+  .res.ok { color: var(--green); }
+  .res.warn { color: var(--amber); }
+  .res.bad { color: var(--red); }
+  .bar { position: relative; height: 6px; margin: 6px 0 2px 18px; width: 300px; background: #1a1f29; border-radius: 3px; }
+  .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+  .bar .limit { position: absolute; right: -1px; top: -5px; bottom: -5px; width: 2px; background: var(--red); opacity: .7; }
+  .bar .lab { position: absolute; left: calc(100% + 8px); top: -6px; font-size: 11px; line-height: 18px;
+              color: var(--red); opacity: .8; white-space: nowrap; }
+  .badge { position: absolute; left: 20px; right: 20px; bottom: 18px; border-radius: 10px; padding: 14px 16px;
+           font-weight: 700; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+  .badge.bad { background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.35); color: #fecaca; }
+  .badge.ok { background: rgba(74,222,128,.12); border: 1px solid rgba(74,222,128,.35); color: #bbf7d0; }
+  .badge small { font-weight: 400; color: var(--muted); font-size: 14px; margin-left: auto; }
+  .overlay { position: absolute; inset: 0; display: grid; place-items: center;
+             background: rgba(8,10,15,.86); backdrop-filter: blur(6px); }
+  .card { text-align: center; }
+  .card h1 { font-size: 46px; letter-spacing: -1px; }
+  .card p { color: var(--muted); font-size: 20px; margin-top: 12px; }
+  .cmd { margin-top: 30px; font-family: var(--mono); font-size: 22px; background: #0f131a; border: 1px solid #2a3142;
+         padding: 16px 24px; border-radius: 12px; display: inline-block; }
+  .cmd .d { color: var(--dim); }
+  .cmd .g { color: var(--green); }
+  .points { margin-top: 26px; display: flex; gap: 12px; justify-content: center; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c4a7ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6z"/>
+      <path d="M14 5v14" stroke-dasharray="2 2.5"/>
+    </svg>
+  </div>
+  <div class="title">mcp-coatcheck<span>MCP Tasks for any MCP server</span></div>
+  <div class="scenario">
+    <div class="chip">Claude Code</div>
+    <div class="chip">40s test run</div>
+    <div class="chip">tool timeout <b>15s</b></div>
+    <div class="chip" id="speed">3× speed</div>
+  </div>
+</header>
+<div class="panes">
+  <div class="pane"><div class="chrome"><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="tag off">without coatcheck</div><div class="clock" id="clockL">0:00</div></div>
+    <div class="body" id="left"></div><div id="badgeL"></div></div>
+  <div class="pane"><div class="chrome"><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    <div class="tag on">with coatcheck</div><div class="clock" id="clockR">0:00</div></div>
+    <div class="body" id="right"></div><div id="badgeR"></div></div>
+</div>
+<div id="overlay"></div>
+
+<script>
+const INTRO = 1.2;          // seconds of video before the clock starts
+const SPEED = 3;            // real seconds per video second
+const REAL_END = 46;        // real seconds shown
+const OUTRO_AT = INTRO + REAL_END / SPEED + 1.6;
+const DURATION = OUTRO_AT + 4.2;
+const LIMIT = 15;           // MCP_TOOL_TIMEOUT in seconds
+
+const PROMPT = "Run the test suite with run_tests (seconds: 40) and report the result in one line.";
+const JOB = "db9e2491";
+
+// [start, end, line] in real seconds. Text copied from the recorded runs.
+const left = [
+  [0.0, null, { cls: "prompt", text: PROMPT }],
+  [1.5, 16.5, { cls: "call", text: "run_tests(seconds: 40)", bar: true }],
+  [16.5, null, { cls: "res bad", text: '✖ MCP server "ci" tool "run_tests" timed out after 15s' }],
+  [18.5, null, { cls: "say", text: "The test run did not finish: the call timed out after 15s, before the 40-second run could complete, so there is no pass/fail result." }],
+];
+const right = [
+  [0.0, null, { cls: "prompt", text: PROMPT }],
+  [1.5, 11.5, { cls: "call", text: "run_tests(seconds: 40)", bar: true }],
+  [11.5, null, { cls: "res warn", text: `⏸ still running in the background (job ${JOB}…)` }],
+  [12.5, null, { cls: "say", text: "The test run went to the background, so I'll load the tool that collects its result." }],
+  [14.0, 24.0, { cls: "call", text: `coatcheck_result(job_id: ${JOB}…)`, bar: true, done: "still running", doneCls: "warn" }],
+  [24.5, 34.5, { cls: "call", text: `coatcheck_result(job_id: ${JOB}…)`, bar: true, done: "still running", doneCls: "warn" }],
+  [35.0, 41.5, { cls: "call", text: `coatcheck_result(job_id: ${JOB}…)`, bar: true }],
+  [41.5, null, { cls: "res ok", text: "✔ 142 passed, 0 failed in 40s" }],
+  [43.0, null, { cls: "say", text: "Tests: 142 passed, 0 failed (40s)." }],
+];
+
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+function bar(elapsed) {
+  const frac = Math.min(elapsed / LIMIT, 1);
+  const color = frac > 0.9 ? "var(--red)" : frac > 0.6 ? "var(--amber)" : "var(--green)";
+  return `<div class="bar"><i style="width:${frac * 100}%;background:${color}"></i>` +
+         `<span class="limit"></span><span class="lab">${LIMIT}s timeout</span></div>`;
+}
+
+function paneHtml(events, rt) {
+  let html = "";
+  for (const [start, end, ev] of events) {
+    if (rt < start) break;
+    html += `<div class="line ${ev.cls}">${esc(ev.text)}`;
+    if (ev.bar) {
+      const running = end === null || rt < end;
+      const elapsed = (running ? rt : end) - start;
+      html += ` <span style="color:var(--muted)">${running ? spinner(rt) + " " : ""}${elapsed.toFixed(0)}s</span>`;
+      html += bar(elapsed);
+      if (!running && ev.done) html += `<div class="res ${ev.doneCls}">↳ ${ev.done}</div>`;
+    }
+    html += "</div>";
+  }
+  return html;
+}
+
+function spinner(rt) {
+  return "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[Math.floor(rt * 6) % 10];
+}
+
+function render(t) {
+  const rt = Math.max(0, Math.min((t - INTRO) * SPEED, REAL_END));
+  document.getElementById("left").innerHTML = paneHtml(left, rt);
+  document.getElementById("right").innerHTML = paneHtml(right, rt);
+  document.getElementById("clockL").textContent = fmt(Math.min(rt, 20));
+  document.getElementById("clockR").textContent = fmt(Math.min(rt, 43));
+  document.getElementById("badgeL").innerHTML = rt >= 20
+    ? `<div class="badge bad">✖ No result. The call hit the client's 15s timeout.<small>gave up at 0:20</small></div>` : "";
+  document.getElementById("badgeR").innerHTML = rt >= 43
+    ? `<div class="badge ok">✔ Result collected. No call ever blocked over 10s.<small>done at 0:43</small></div>` : "";
+
+  const o = document.getElementById("overlay");
+  if (t >= OUTRO_AT) {
+    const a = Math.min((t - OUTRO_AT) / 0.5, 1);
+    o.innerHTML = `<div class="overlay" style="opacity:${a}"><div class="card">
+      <h1>Slow MCP tools, without the timeouts.</h1>
+      <p>Real MCP Tasks where the client supports them. Job ids everywhere else.</p>
+      <div class="cmd"><span class="d">$</span> npx <span class="g">mcp-coatcheck</span> <span class="d">--</span> &lt;your MCP server&gt;</div>
+      <div class="points"><div class="chip">zero dependencies</div><div class="chip">no server changes</div>
+      <div class="chip">MCP 2025-11-25 + 2026-07-28</div></div></div></div>`;
+  } else {
+    o.innerHTML = "";
+  }
+}
+
+window.DURATION = DURATION;
+window.render = render;
+if (!navigator.webdriver) {
+  const t0 = performance.now();
+  (function loop() { render(((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); })();
+} else {
+  render(0);
+}
+</script>
+</body>
+</html>
