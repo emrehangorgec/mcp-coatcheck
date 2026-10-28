@@ -191,8 +191,8 @@ function render(t) {
   if (t >= OUTRO_AT) {
     const a = Math.min((t - OUTRO_AT) / 0.5, 1);
     o.innerHTML = `<div class="overlay" style="opacity:${a}"><div class="card">
-      <h1>Slow MCP tools, without the timeouts.</h1>
-      <p>Real MCP Tasks where the client supports them. Job ids everywhere else.</p>
+      <h1>Check in a tool call. Pick up the result.</h1>
+      <p>MCP Tasks for any MCP server. Long calls stop timing out.</p>
       <div class="cmd"><span class="d">$</span> npx <span class="g">mcp-coatcheck</span> <span class="d">--</span> &lt;your MCP server&gt;</div>
       <div class="points"><div class="chip">zero dependencies</div><div class="chip">no server changes</div>
       <div class="chip">MCP 2025-11-25 + 2026-07-28</div></div></div></div>`;
