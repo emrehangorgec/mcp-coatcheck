@@ -4,15 +4,19 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { once } from "node:events";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const TASKS_EXT = "io.modelcontextprotocol/tasks";
 const CLIENT_CAPS = "io.modelcontextprotocol/clientCapabilities";
 
-function startProxy(extra = []) {
+function startProxy(extra = [], serverArgs = []) {
   const proc = spawn(
     process.execPath,
-    ["dist/cli.js", "--after", "300ms", ...extra, "--", process.execPath, "examples/slow-server.mjs"],
+    ["dist/cli.js", "--after", "300ms", "--no-cache", ...extra, "--", process.execPath, "examples/slow-server.mjs", ...serverArgs],
     { cwd: root, stdio: ["pipe", "pipe", "inherit"] },
   );
   const waiting = new Map();
@@ -35,11 +39,89 @@ function startProxy(extra = []) {
   };
   const notify = (method, params) => proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
   const send = (msg) => proc.stdin.write(JSON.stringify(msg) + "\n");
-  return { request, notify, send, waiting, stray, close: () => proc.kill() };
+  return { request, notify, send, waiting, stray, close: () => proc.kill(), stop: async () => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    const exited = once(proc, "exit");
+    proc.kill();
+    await exited;
+  } };
 }
 
 const text = (result) => result.content.map((c) => c.text).join("");
 const jobIdFrom = (result) => /job ([0-9a-f-]{36})/.exec(text(result))[1];
+
+for (const era of ["2025-11-25", "2026-07-28", "fallback"]) {
+test(`${era}: completed tickets survive a proxy restart`, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "coatcheck-restart-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const args = ["--cache-dir", dir];
+  const first = startProxy(args);
+  t.after(first.stop);
+  const params = era === "2025-11-25" ? { task: {} } : era === "2026-07-28"
+    ? { _meta: { [CLIENT_CAPS]: { extensions: { [TASKS_EXT]: {} } } } } : {};
+  const created = await first.request("tools/call", { name: "run_tests", arguments: { seconds: 0.5 }, ...params });
+  const id = era === "2025-11-25" ? created.result.task.taskId
+    : era === "2026-07-28" ? created.result.taskId : jobIdFrom(created.result);
+  const done = await first.request("tasks/result", { taskId: id });
+  await first.stop();
+  const second = startProxy(args);
+  t.after(second.stop);
+  const status = await second.request("tasks/get", { taskId: id });
+  assert.equal(status.result.status, "completed");
+  const result = await second.request("tasks/result", { taskId: id });
+  assert.deepEqual(result.result, done.result);
+  const fallback = await second.request("tools/call", { name: "coatcheck_result", arguments: { job_id: id } });
+  assert.equal(text(fallback.result), "142 passed, 0 failed in 0.5s");
+  const otherServer = startProxy(args, ["different-server-config"]);
+  t.after(otherServer.stop);
+  const missing = await otherServer.request("tasks/get", { taskId: id });
+  assert.equal(missing.error.code, -32602);
+});
+}
+
+test("failed, cancelled and interrupted tickets survive a restart without retrying", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "coatcheck-states-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const args = ["--cache-dir", dir];
+  const first = startProxy(args);
+  t.after(first.stop);
+  const call = async (name, args = {}) => (await first.request("tools/call", { name, arguments: args, task: {} })).result.task.taskId;
+  const failed = await call("explode");
+  assert.equal((await first.request("tasks/result", { taskId: failed })).result.isError, true);
+  const rpcError = await call("unknown_tool");
+  const originalError = await first.request("tasks/result", { taskId: rpcError });
+  const cancelled = await call("run_tests", { seconds: 30 });
+  await first.request("tasks/cancel", { taskId: cancelled });
+  const interrupted = await call("run_tests", { seconds: 30 });
+  // Another proxy with the same configuration must not adopt or cancel live work.
+  const concurrent = startProxy(args);
+  t.after(concurrent.stop);
+  assert.equal((await concurrent.request("tasks/get", { taskId: interrupted })).error.code, -32602);
+  assert.equal((await first.request("tasks/get", { taskId: interrupted })).result.status, "working");
+  await concurrent.stop();
+  await first.stop();
+  const second = startProxy(args);
+  t.after(second.stop);
+  for (const [id, expected] of [[failed, "failed"], [rpcError, "failed"], [cancelled, "cancelled"], [interrupted, "failed"]]) {
+    assert.equal((await second.request("tasks/get", { taskId: id })).result.status, expected);
+  }
+  assert.equal((await second.request("tasks/result", { taskId: failed })).result.isError, true);
+  assert.deepEqual((await second.request("tasks/result", { taskId: rpcError })).error, originalError.error);
+  const result = await second.request("tasks/result", { taskId: interrupted });
+  assert.match(result.error.message, /proxy stopped.*not retried/);
+});
+
+test("--no-cache keeps tickets in memory only", async (t) => {
+  const first = startProxy();
+  t.after(first.stop);
+  const created = await first.request("tools/call", { name: "echo", arguments: { text: "private" }, task: {} });
+  const id = created.result.task.taskId;
+  await first.request("tasks/result", { taskId: id });
+  await first.stop();
+  const second = startProxy();
+  t.after(second.stop);
+  assert.equal((await second.request("tasks/get", { taskId: id })).error.code, -32602);
+});
 
 test("advertises tasks and marks tools as task capable", async (t) => {
   const c = startProxy();

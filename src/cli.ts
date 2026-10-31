@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { CoatcheckProxy, type ProxyOptions } from "./proxy.js";
+import { DiskCache, defaultCacheDir } from "./cache.js";
 
 const USAGE = `Usage: mcp-coatcheck [options] -- <server command> [args...]
 
@@ -13,6 +14,9 @@ Options:
                         handed back as a task or job id (default 20s).
                         Keep it below your client's tool timeout.
   --ttl <duration>      Keep finished results this long (default 1h)
+                        MCP Tasks expire this long after creation.
+  --cache-dir <path>    Store tickets under this cache root
+  --no-cache            Keep tickets in memory only
   --poll <duration>     Suggested polling interval (default 2s)
   --only <a,b,...>      Only these tools may become tasks
   --no-fallback-tools   Don't add coatcheck_status/result/cancel tools
@@ -30,7 +34,8 @@ function parseDuration(text: string): number {
   return Math.round(Number(match[1]) * scale);
 }
 
-function parseArgs(argv: string[]): { opts: ProxyOptions; command: string[] } {
+function parseArgs(argv: string[]): { opts: ProxyOptions; command: string[]; cacheDir?: string } {
+  let cacheDir: string | undefined = defaultCacheDir();
   const opts: ProxyOptions = {
     softTimeoutMs: 20_000,
     ttlMs: 3_600_000,
@@ -54,12 +59,14 @@ function parseArgs(argv: string[]): { opts: ProxyOptions; command: string[] } {
     } else if (arg === "--after") opts.softTimeoutMs = parseDuration(value());
     else if (arg === "--ttl") opts.ttlMs = parseDuration(value());
     else if (arg === "--poll") opts.pollIntervalMs = parseDuration(value());
+    else if (arg === "--cache-dir") cacheDir = value();
+    else if (arg === "--no-cache") cacheDir = undefined;
     else if (arg === "--only") opts.only = new Set(value().split(",").map((s) => s.trim()).filter(Boolean));
     else if (arg === "--no-fallback-tools") opts.fallbackTools = false;
     else throw new Error(`Unknown option: ${arg}`);
   }
   if (command.length === 0) throw new Error("Missing server command after --");
-  return { opts, command };
+  return { opts, command, cacheDir };
 }
 
 function main(): void {
@@ -70,7 +77,16 @@ function main(): void {
     console.error(`mcp-coatcheck: ${(err as Error).message}\n\n${USAGE}`);
     process.exit(2);
   }
-  const { opts, command } = parsed;
+  const { opts, command, cacheDir } = parsed;
+  if (cacheDir !== undefined) {
+    try {
+      opts.cache = new DiskCache(cacheDir, command, process.cwd());
+    } catch (err) {
+      console.error(`mcp-coatcheck: cannot open result cache: ${(err as Error).message}. Use --cache-dir or --no-cache.`);
+      process.exit(1);
+    }
+    setInterval(() => opts.cache?.sweep(), 60_000).unref();
+  }
 
   const child = spawnServer(command);
 

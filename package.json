@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test --test-timeout=20000 test/*.test.mjs",
+    "test": "npm run build && node --test --test-timeout=20000",
     "prepublishOnly": "npm test"
   },
   "repository": {

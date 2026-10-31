@@ -1,4 +1,5 @@
 import { JobStore, TERMINAL, type Job, type JobEra } from "./jobs.js";
+import type { DiskCache } from "./cache.js";
 
 const TASKS_EXT = "io.modelcontextprotocol/tasks";
 const CLIENT_CAPS_META = "io.modelcontextprotocol/clientCapabilities";
@@ -20,6 +21,7 @@ export interface ProxyOptions {
   /** When set, only these tools are ever turned into tasks. */
   only?: Set<string>;
   fallbackTools: boolean;
+  cache?: DiskCache;
 }
 
 type Send = (msg: any) => void;
@@ -46,7 +48,7 @@ export class CoatcheckProxy {
     private toClient: Send,
     private toServer: Send,
   ) {
-    this.jobs = new JobStore(opts.ttlMs);
+    this.jobs = new JobStore(opts.ttlMs, opts.cache);
   }
 
   fromClient(msg: any): void {

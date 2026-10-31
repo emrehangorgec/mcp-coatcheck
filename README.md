@@ -77,7 +77,9 @@ args = ["-y", "mcp-coatcheck", "--", "npx", "-y", "some-slow-mcp-server"]
 | Option | Default | Meaning |
 |---|---|---|
 | `--after <duration>` | `20s` | Longest any single call may block. Keep it below your client's tool timeout. |
-| `--ttl <duration>` | `1h` | How long finished results are kept |
+| `--ttl <duration>` | `1h` | Fallback result retention after completion. MCP Tasks retain their lifetime from creation. |
+| `--cache-dir <path>` | OS cache directory | Root directory for persisted tickets, separated by server command and working directory |
+| `--no-cache` | | Keep tickets in memory only |
 | `--poll <duration>` | `2s` | Polling interval suggested to Tasks clients |
 | `--only <a,b>` | all tools | Only these tools may move to the background |
 | `--no-fallback-tools` | | Don't add the `coatcheck_*` tools |
@@ -94,15 +96,39 @@ Durations look like `500ms`, `20s`, `2m`, `1h`.
 | 2026-07-28 Tasks | | ✅ covered by the test suite. Not yet tried with a real client |
 | Codex, Cursor, Gemini CLI | job id fallback | not yet tried. Reports welcome |
 
-`npm test` starts the real proxy around [`examples/slow-server.mjs`](examples/slow-server.mjs) and runs 14 end to end checks across all three modes, including cancellation races and late answers.
+`npm test` runs 24 checks, including real proxy processes around [`examples/slow-server.mjs`](examples/slow-server.mjs). They cover all three modes, restart recovery, cancellation races, late answers, cache isolation, and expiration. GitHub Actions is configured for Windows, Linux, and macOS with Node.js 20, 22, and 24.
 
 ## Good to know
 
 * If the wrapped server already supports Tasks, coatcheck notices during the handshake and gets out of the way.
-* Results live in memory. Restarting the proxy loses running jobs.
+* Tickets are saved to disk by default. Completed results, errors, and cancellation status can be retrieved with the same ticket after restarting with the same server command, arguments, working directory, and cache root.
+* Running calls still stop when the proxy stops. After its process has exited, an unexpired ticket reports that the call was interrupted. Calls are never retried automatically. Continuing running calls across restarts requires a daemon and is not implemented yet.
 * `tasks/list` is not offered: the proxy cannot tell callers apart, so listing would show one caller another's tasks. Task ids are random UUIDs.
 * stdio only for now. Streamable HTTP is next.
 * If the wrapped server asks the user something (elicitation) while a call runs in the background, the request is forwarded but not tied to the task yet.
+
+## Persisted tickets
+
+The default cache root is `%LOCALAPPDATA%\mcp-coatcheck` on Windows,
+`~/Library/Caches/mcp-coatcheck` on macOS, and
+`${XDG_CACHE_HOME:-~/.cache}/mcp-coatcheck` on Linux. Each server command
+(including arguments) and working directory gets a separate hashed subdirectory.
+Use a separate `--cache-dir` when the same command runs with different accounts
+or environment-based configuration. The cache does not provide an authentication boundary.
+
+Records are written through a temporary file and renamed into place. They contain
+tool results and errors in plain text, which can include sensitive data. New
+directories and files use owner-only permissions on POSIX; Windows uses inherited
+directory ACLs. Use `--no-cache` to avoid disk storage. The server's cache directory
+is cleaned on startup and every minute while the proxy runs. Expired records in
+other server directories remain until that configuration runs again or you remove them.
+
+Fallback results expire `--ttl` after completion. MCP Tasks expire from creation,
+using the shorter of the requested TTL and `--ttl`. Interrupted calls retain their
+original timestamps. An in-flight call owned by another live proxy process cannot
+be collected through a second proxy; restart recovery is not live session sharing.
+If a cache write fails, a warning goes to stderr and the current process retains
+the result in memory, but it may not survive a restart.
 
 ## Try it locally
 

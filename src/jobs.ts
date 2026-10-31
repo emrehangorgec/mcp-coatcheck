@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { expiresAt, type DiskCache } from "./cache.js";
 
 export type JobStatus = "working" | "completed" | "failed" | "cancelled";
 
@@ -29,7 +30,7 @@ export class JobStore {
   private jobs = new Map<string, Job>();
   private byUpstream = new Map<string, Job>();
 
-  constructor(private defaultTtlMs: number) {}
+  constructor(private defaultTtlMs: number, private cache?: DiskCache) {}
 
   create(tool: string, era: JobEra, upstreamId: string, ttlMs?: number): Job {
     const now = new Date();
@@ -47,12 +48,17 @@ export class JobStore {
     };
     this.jobs.set(job.id, job);
     this.byUpstream.set(upstreamId, job);
+    this.cache?.save(job);
     return job;
   }
 
   get(id: string): Job | undefined {
     this.sweep();
-    return this.jobs.get(id);
+    const current = this.jobs.get(id);
+    if (current) return current;
+    const restored = this.cache?.load(id);
+    if (restored) this.jobs.set(id, restored);
+    return restored;
   }
 
   byUpstreamId(upstreamId: string): Job | undefined {
@@ -68,6 +74,7 @@ export class JobStore {
     job.error = patch.error;
     job.statusMessage = patch.statusMessage;
     job.lastUpdatedAt = new Date();
+    this.cache?.save(job);
     for (const wake of job.waiters.splice(0)) wake();
   }
 
@@ -78,6 +85,8 @@ export class JobStore {
       const timer = setTimeout(done, timeoutMs);
       function done() {
         clearTimeout(timer);
+        const index = job.waiters.indexOf(done);
+        if (index !== -1) job.waiters.splice(index, 1);
         resolve();
       }
       job.waiters.push(done);
@@ -87,9 +96,11 @@ export class JobStore {
   private sweep(): void {
     const now = Date.now();
     for (const [id, job] of this.jobs) {
-      if (now - job.createdAt.getTime() > job.ttlMs) {
+      if (job.era === "fallback" && job.status === "working") continue;
+      if (now >= expiresAt(job)) {
         this.jobs.delete(id);
         this.byUpstream.delete(job.upstreamId);
+        this.cache?.remove(id);
       }
     }
   }
